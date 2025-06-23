@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF页码校验工具</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            font-weight: 300;
+        }
+
+        .main-content {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .upload-section {
+            position: relative;
+            text-align: center;
+            padding: 3rem 2rem;
+            border-radius: 15px;
+            background: rgba(102, 126, 234, 0.05);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .upload-section:hover {
+            background: rgba(118, 75, 162, 0.05);
+            transform: translateY(-2px);
+        }
+        
+        .upload-section.dragover {
+            background: rgba(118, 75, 162, 0.1);
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            color: #667eea;
+            margin-bottom: 1rem;
+        }
+
+        .upload-text {
+            font-size: 1.2rem;
+            color: #666;
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-hint {
+            font-size: 0.9rem;
+            color: #999;
+        }
+
+        .file-size-limit {
+            font-size: 0.8rem;
+            color: #667eea;
+            margin-top: 0.5rem;
+            font-weight: 500;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .progress-section {
+            display: none;
+            margin-top: 2rem;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            text-align: center;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .results-section {
+            display: none;
+            margin-top: 2rem;
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .results-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .success-rate {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 25px;
+            font-weight: 500;
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .result-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border-left: 4px solid #667eea;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .result-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .card-icon {
+            font-size: 1.5rem;
+            margin-right: 0.75rem;
+        }
+
+        .card-title {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .card-content {
+            color: #666;
+        }
+
+        .page-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .page-table th,
+        .page-table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .page-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .page-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .status-valid {
+            color: #28a745;
+            font-weight: 500;
+        }
+
+        .status-invalid {
+            color: #dc3545;
+            font-weight: 500;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-top: 2rem;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+
+        .issues-section {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+        }
+
+        .issues-title {
+            color: #856404;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .issue-item {
+            color: #856404;
+            margin-bottom: 0.5rem;
+            padding-left: 1rem;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            border: 1px solid #f5c6cb;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .results-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .action-buttons {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-file-pdf"></i> PDF页码校验工具</h1>
+            <p>专业的PDF文档页码验证解决方案</p>
+        </div>
+
+        <div class="main-content">
+            <label for="fileInput" class="upload-section" id="uploadSection">
+                <div class="upload-icon">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                </div>
+                <div class="upload-text">点击或拖拽PDF文件到此处</div>
+                <div class="upload-hint">支持所有标准PDF格式</div>
+                <div class="file-size-limit" id="fileSizeLimit">最大文件大小: 加载中...</div>
+            </label>
+            <input type="file" id="fileInput" accept=".pdf" style="display: none;" />
+
+            <div class="progress-section" id="progressSection">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">正在处理...</div>
+            </div>
+
+            <div class="results-section" id="resultsSection">
+                <div class="results-header">
+                    <div class="results-title">验证结果</div>
+                    <div class="success-rate" id="successRate">成功率: 0%</div>
+                </div>
+
+                <div class="results-grid">
+                    <div class="result-card">
+                        <div class="card-header">
+                            <i class="fas fa-file-alt card-icon"></i>
+                            <div class="card-title">文档信息</div>
+                        </div>
+                        <div class="card-content">
+                            <div>总页数: <span id="totalPages">0</span></div>
+                            <div>文件名: <span id="fileName">-</span></div>
+                            <div>文件大小: <span id="fileSize">-</span></div>
+                        </div>
+                    </div>
+
+                    <div class="result-card">
+                        <div class="card-header">
+                            <i class="fas fa-check-circle card-icon"></i>
+                            <div class="card-title">验证统计</div>
+                        </div>
+                        <div class="card-content">
+                            <div>正确页码: <span id="correctPages">0</span></div>
+                            <div>错误页码: <span id="errorPages">0</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="page-table-container">
+                    <h3>页码对照表</h3>
+                    <table class="page-table" id="pageTable">
+                        <thead>
+                            <tr>
+                                <th>页面序号</th>
+                                <th>期望页码</th>
+                                <th>截取图片</th>
+                                <th>检测页码</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pageTableBody">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="issues-section" id="issuesSection" style="display: none;">
+                    <div class="issues-title">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        发现的问题
+                    </div>
+                    <div id="issuesList"></div>
+                </div>
+
+                <div class="action-buttons">
+                    <button class="btn btn-primary" id="downloadReport">
+                        <i class="fas fa-download"></i>
+                        下载报告
+                    </button>
+                    <button class="btn btn-secondary" id="newFile">
+                        <i class="fas fa-plus"></i>
+                        处理新文件
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class PDFPageValidator {
+            constructor() {
+                this.initializeElements();
+                this.bindEvents();
+                this.currentResult = null;
+                this.loadConfig();
+            }
+
+            initializeElements() {
+                this.uploadSection = document.getElementById('uploadSection');
+                this.fileInput = document.getElementById('fileInput');
+                this.progressSection = document.getElementById('progressSection');
+                this.progressFill = document.getElementById('progressFill');
+                this.progressText = document.getElementById('progressText');
+                this.resultsSection = document.getElementById('resultsSection');
+                this.fileSizeLimit = document.getElementById('fileSizeLimit');
+                
+                // 结果元素
+                this.successRate = document.getElementById('successRate');
+                this.totalPages = document.getElementById('totalPages');
+                this.fileName = document.getElementById('fileName');
+                this.fileSize = document.getElementById('fileSize');
+                this.correctPages = document.getElementById('correctPages');
+                this.errorPages = document.getElementById('errorPages');
+                this.pageTableBody = document.getElementById('pageTableBody');
+                this.issuesSection = document.getElementById('issuesSection');
+                this.issuesList = document.getElementById('issuesList');
+                
+                // 按钮
+                this.downloadReport = document.getElementById('downloadReport');
+                this.newFile = document.getElementById('newFile');
+            }
+
+            async loadConfig() {
+                try {
+                    const response = await fetch('/config');
+                    if (response.ok) {
+                        const config = await response.json();
+                        this.fileSizeLimit.textContent = `最大文件大小: ${config.max_file_size_formatted}`;
+                    }
+                } catch (error) {
+                    console.warn('无法加载配置信息:', error);
+                    this.fileSizeLimit.textContent = '最大文件大小: 500MB';
+                }
+            }
+
+            bindEvents() {
+                // 文件选择后处理
+                this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+                
+                // 拖拽事件 (uploadSection 现在是 <label>)
+                this.uploadSection.addEventListener('dragover', (e) => this.handleDragOver(e));
+                this.uploadSection.addEventListener('dragleave', (e) => this.handleDragLeave(e));
+                this.uploadSection.addEventListener('drop', (e) => this.handleDrop(e));
+                
+                // 按钮事件
+                this.downloadReport.addEventListener('click', () => this.downloadReport());
+                this.newFile.addEventListener('click', () => this.resetForm());
+            }
+
+            handleDragOver(e) {
+                e.preventDefault();
+                this.uploadSection.classList.add('dragover');
+            }
+
+            handleDragLeave(e) {
+                e.preventDefault();
+                this.uploadSection.classList.remove('dragover');
+            }
+
+            handleDrop(e) {
+                e.preventDefault();
+                this.uploadSection.classList.remove('dragover');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type === 'application/pdf') {
+                    this.processFile(files[0]);
+                } else {
+                    this.showError('请选择PDF文件');
+                }
+            }
+
+            handleFileSelect(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    if (file.type === 'application/pdf') {
+                        this.processFile(file);
+                    } else {
+                        this.showError('请选择PDF文件');
+                    }
+                }
+            }
+
+            async processFile(file) {
+                try {
+                    this.showProgress();
+                    this.updateProgress(10, '正在上传文件...');
+                    
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    
+                    this.updateProgress(30, '正在验证PDF...');
+                    
+                    const response = await fetch('/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    this.updateProgress(90, '正在生成结果...');
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        const errorMessage = errorData.traceback 
+                            ? `${errorData.error}\n\n错误详情:\n${errorData.traceback}` 
+                            : errorData.error;
+                        throw new Error(errorMessage || '上传失败');
+                    }
+                    
+                    const result = await response.json();
+                    this.currentResult = result;
+                    
+                    this.updateProgress(100, '验证完成');
+                    await this.delay(500);
+                    
+                    this.hideProgress();
+                    this.displayResults(result);
+                    
+                } catch (error) {
+                    console.error('处理文件时出错:', error);
+                    this.hideProgress();
+                    this.showError(error.message);
+                }
+            }
+
+            showProgress() {
+                this.progressSection.style.display = 'block';
+                this.resultsSection.style.display = 'none';
+                this.clearError();
+            }
+
+            hideProgress() {
+                this.progressSection.style.display = 'none';
+            }
+
+            updateProgress(percentage, text) {
+                this.progressFill.style.width = `${percentage}%`;
+                this.progressText.textContent = text;
+            }
+
+            displayResults(result) {
+                // 更新基本信息
+                this.fileName.textContent = result.filename || '未知文件';
+                this.totalPages.textContent = result.total_pages || 0;
+                this.fileSize.textContent = result.file_size || '-';
+                this.correctPages.textContent = result.correct_pages || 0;
+                this.errorPages.textContent = result.error_pages || 0;
+                this.successRate.textContent = `成功率: ${(result.success_rate || 0).toFixed(1)}%`;
+
+                // 更新页码表格
+                this.updatePageTable(result.validation_results || []);
+
+                // 更新问题列表
+                if (result.issues && result.issues.length > 0) {
+                    this.issuesList.innerHTML = result.issues.map(issue => 
+                        `<div class="issue-item">• ${issue}</div>`
+                    ).join('');
+                    this.issuesSection.style.display = 'block';
+                } else {
+                    this.issuesSection.style.display = 'none';
+                }
+
+                // 显示结果区域
+                this.resultsSection.style.display = 'block';
+            }
+
+            updatePageTable(results) {
+                this.pageTableBody.innerHTML = results.map(result => `
+                    <tr>
+                        <td>${result.page_index + 1}</td>
+                        <td>${result.actual_number}</td>
+                        <td>
+                            ${result.cropped_image_b64 
+                                ? `<img src="${result.cropped_image_b64}" 
+                                       alt="截取图片" 
+                                       style="max-width: 200px; max-height: 40px; cursor: pointer; display: block; margin: auto;"
+                                       onclick="this.style.maxWidth = this.style.maxWidth === 'none' ? '200px' : 'none'; this.style.maxHeight = this.style.maxHeight === 'none' ? '40px' : 'none';">` 
+                                : '无'}
+                        </td>
+                        <td>${result.detected_number || 'N/A'}</td>
+                        <td class="${result.is_valid ? 'status-valid' : 'status-invalid'}">
+                            ${result.is_valid ? '✓ 正确' : '✗ 错误'}
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+            async downloadReport() {
+                if (!this.currentResult) {
+                    this.showError('没有可下载的报告');
+                    return;
+                }
+
+                try {
+                    const reportContent = this.generateReportContent();
+                    
+                    const response = await fetch('/download-report', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            report_content: reportContent
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('下载失败');
+                    }
+                    
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `PDF页码验证报告_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                    
+                } catch (error) {
+                    console.error('下载报告失败:', error);
+                    this.showError('下载报告失败');
+                }
+            }
+
+            generateReportContent() {
+                const result = this.currentResult;
+                if (!result) return '';
+                
+                return `
+PDF页码验证报告
+============================================================
+文件名: ${result.filename || '未知文件'}
+文件大小: ${result.file_size || '-'}
+总页数: ${result.total_pages || 0}
+验证成功率: ${(result.success_rate || 0).toFixed(2)}%
+
+详细结果:
+----------------------------------------
+${(result.validation_results || []).map(r => 
+    `第 ${String(r.page_index + 1).padStart(2, ' ')} 页: 期望 ${String(r.actual_number).padStart(2, ' ')}, 检测 ${String(r.detected_number ?? 'N/A').padEnd(4, ' ')} ${r.is_valid ? '✓' : '✗'}`
+).join('\n')}
+
+${(result.issues || []).length > 0 ? `
+发现的问题:
+--------------------
+${result.issues.map(issue => `• ${issue}`).join('\n')}
+` : ''}
+`;
+            }
+
+            resetForm() {
+                this.fileInput.value = '';
+                this.resultsSection.style.display = 'none';
+                this.progressSection.style.display = 'none';
+                this.uploadSection.classList.remove('dragover');
+                this.clearError();
+                this.currentResult = null;
+            }
+
+            showError(message) {
+                this.clearError();
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.innerHTML = `<i class="fas fa-exclamation-circle"></i> <pre style="white-space: pre-wrap; word-wrap: break-word;">${message}</pre>`;
+                this.uploadSection.parentNode.insertBefore(errorDiv, this.uploadSection.nextSibling);
+            }
+
+            clearError() {
+                const existingError = document.querySelector('.error-message');
+                if (existingError) {
+                    existingError.remove();
+                }
+            }
+
+            delay(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+        }
+
+        // 初始化应用
+        document.addEventListener('DOMContentLoaded', () => {
+            new PDFPageValidator();
+        });
+    </script>
+</body>
+</html> 
