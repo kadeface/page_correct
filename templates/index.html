@@ -6,6 +6,7 @@
     <title>PDF页码校验工具</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
     <style>
         * {
             margin: 0;
@@ -322,6 +323,91 @@
             margin: 1rem 0;
             border: 1px solid #f5c6cb;
         }
+        
+        /* --- 新增：裁剪模态框样式 --- */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.7);
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 900px;
+            border-radius: 12px;
+        }
+        .modal-header {
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-header h2 {
+            font-weight: 600;
+        }
+        .modal-controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .page-input-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .page-input-group label {
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        .page-input-group input {
+            width: 60px;
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            text-align: center;
+        }
+        .page-input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3);
+        }
+        .close-button {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .modal-body {
+            max-height: 60vh;
+        }
+        .img-container {
+            max-height: 60vh;
+        }
+        .img-container img {
+            max-width: 100%;
+            max-height: 100%;
+        }
+        .modal-footer {
+            padding-top: 1rem;
+            border-top: 1px solid #ddd;
+            margin-top: 1rem;
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+        }
 
         @media (max-width: 768px) {
             .container {
@@ -338,6 +424,9 @@
             
             .action-buttons {
                 flex-direction: column;
+            }
+            .modal-content {
+                width: 95%;
             }
         }
     </style>
@@ -437,12 +526,49 @@
         </div>
     </div>
 
+    <!-- 新增：裁剪模态框 -->
+    <div id="cropModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>框选页码区域</h2>
+                <div class="modal-controls">
+                    <div class="page-input-group">
+                        <label for="pageNumberInput">预览页码:</label>
+                        <input type="number" id="pageNumberInput" value="1" min="1">
+                        <button class="btn btn-secondary" id="refreshPreviewBtn" style="padding: 0.25rem 0.75rem;">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                    <span class="close-button" id="closeModal">&times;</span>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="img-container">
+                    <img id="previewImage" src="">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelCrop">取消</button>
+                <button class="btn btn-primary" id="confirmCrop">
+                    <i class="fas fa-check"></i> 确认并开始验证
+                </button>
+                <button class="btn btn-secondary" id="useDefaultConfig" title="使用config.py文件中的默认配置进行验证">
+                    <i class="fas fa-cogs"></i> 使用默认配置
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
     <script>
         class PDFPageValidator {
             constructor() {
                 this.initializeElements();
                 this.bindEvents();
                 this.currentResult = null;
+                this.currentFile = null;
+                this.cropper = null;
                 this.loadConfig();
             }
 
@@ -467,8 +593,18 @@
                 this.issuesList = document.getElementById('issuesList');
                 
                 // 按钮
-                this.downloadReport = document.getElementById('downloadReport');
-                this.newFile = document.getElementById('newFile');
+                this.downloadReportBtn = document.getElementById('downloadReport');
+                this.newFileBtn = document.getElementById('newFile');
+
+                // 模态框元素
+                this.cropModal = document.getElementById('cropModal');
+                this.previewImage = document.getElementById('previewImage');
+                this.closeModalBtn = document.getElementById('closeModal');
+                this.confirmCropBtn = document.getElementById('confirmCrop');
+                this.cancelCropBtn = document.getElementById('cancelCrop');
+                this.useDefaultConfigBtn = document.getElementById('useDefaultConfig');
+                this.pageNumberInput = document.getElementById('pageNumberInput');
+                this.refreshPreviewBtn = document.getElementById('refreshPreviewBtn');
             }
 
             async loadConfig() {
@@ -482,20 +618,25 @@
                     console.warn('无法加载配置信息:', error);
                     this.fileSizeLimit.textContent = '最大文件大小: 500MB';
                 }
+                this.useDefaultConfigBtn.addEventListener('click', () => this.startValidationWithDefault());
+                this.refreshPreviewBtn.addEventListener('click', () => this.refreshPreview());
             }
 
             bindEvents() {
-                // 文件选择后处理
-                this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
-                
-                // 拖拽事件 (uploadSection 现在是 <label>)
+                this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e.target.files));
                 this.uploadSection.addEventListener('dragover', (e) => this.handleDragOver(e));
                 this.uploadSection.addEventListener('dragleave', (e) => this.handleDragLeave(e));
                 this.uploadSection.addEventListener('drop', (e) => this.handleDrop(e));
                 
-                // 按钮事件
-                this.downloadReport.addEventListener('click', () => this.downloadReport());
-                this.newFile.addEventListener('click', () => this.resetForm());
+                this.downloadReportBtn.addEventListener('click', () => this.downloadReport());
+                this.newFileBtn.addEventListener('click', () => this.resetForm());
+
+                // 模态框事件
+                this.closeModalBtn.addEventListener('click', () => this.hideCropModal());
+                this.cancelCropBtn.addEventListener('click', () => this.hideCropModal());
+                this.confirmCropBtn.addEventListener('click', () => this.startValidationWithCrop());
+                this.useDefaultConfigBtn.addEventListener('click', () => this.startValidationWithDefault());
+                this.refreshPreviewBtn.addEventListener('click', () => this.refreshPreview());
             }
 
             handleDragOver(e) {
@@ -511,33 +652,111 @@
             handleDrop(e) {
                 e.preventDefault();
                 this.uploadSection.classList.remove('dragover');
-                
-                const files = e.dataTransfer.files;
-                if (files.length > 0 && files[0].type === 'application/pdf') {
-                    this.processFile(files[0]);
-                } else {
-                    this.showError('请选择PDF文件');
-                }
+                this.handleFileSelect(e.dataTransfer.files);
             }
 
-            handleFileSelect(e) {
-                const file = e.target.files[0];
-                if (file) {
-                    if (file.type === 'application/pdf') {
-                        this.processFile(file);
+            handleFileSelect(files) {
+                if (files.length > 0) {
+                    const file = files[0];
+                     if (file.type === 'application/pdf') {
+                        this.currentFile = file;
+                        this.showPreview(file, 1); // 默认显示第一页
                     } else {
                         this.showError('请选择PDF文件');
                     }
                 }
             }
 
-            async processFile(file) {
+            async showPreview(file, pageNum) {
+                this.showProgress();
+                this.updateProgress(10, `正在生成第 ${pageNum} 页预览...`);
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('page_number', pageNum);
+
+                    const response = await fetch('/preview', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || '生成预览失败');
+                    }
+                    
+                    const data = await response.json();
+                    this.previewImage.src = data.preview_image;
+                    this.pageNumberInput.value = data.page_index + 1; // 更新输入框为实际页码
+                    this.hideProgress();
+                    this.showCropModal();
+                    
+                    this.previewImage.onload = () => {
+                         if (this.cropper) {
+                            this.cropper.destroy();
+                        }
+                        this.cropper = new Cropper(this.previewImage, {
+                            viewMode: 1,
+                            dragMode: 'crop',
+                            autoCropArea: 0.1,
+                            background: false,
+                        });
+                    }
+
+                } catch (error) {
+                    console.error('预览失败:', error);
+                    this.hideProgress();
+                    this.showError(error.message);
+                }
+            }
+
+            showCropModal() {
+                this.cropModal.style.display = 'flex';
+            }
+
+            hideCropModal() {
+                this.cropModal.style.display = 'none';
+                if (this.cropper) {
+                    this.cropper.destroy();
+                    this.cropper = null;
+                }
+                this.fileInput.value = ''; // 允许重新选择相同的文件
+            }
+
+            startValidationWithDefault() {
+                this.hideCropModal();
+                this.processFile(this.currentFile, null); // 传递null表示使用默认配置
+            }
+
+            startValidationWithCrop() {
+                if (!this.cropper) return;
+                const cropData = this.cropper.getData();
+                const imageData = this.cropper.getImageData();
+                
+                const cropPercentages = {
+                    x_start_percent: cropData.x / imageData.naturalWidth,
+                    y_start_percent: cropData.y / imageData.naturalHeight,
+                    width_percent: cropData.width / imageData.naturalWidth,
+                    height_percent: cropData.height / imageData.naturalHeight,
+                };
+
+                this.hideCropModal();
+                this.processFile(this.currentFile, cropPercentages);
+            }
+
+            async processFile(file, cropData) {
                 try {
                     this.showProgress();
                     this.updateProgress(10, '正在上传文件...');
                     
                     const formData = new FormData();
                     formData.append('file', file);
+
+                    if (cropData) {
+                        for (const key in cropData) {
+                            formData.append(key, cropData[key]);
+                        }
+                    }
                     
                     this.updateProgress(30, '正在验证PDF...');
                     
@@ -706,6 +925,8 @@ ${result.issues.map(issue => `• ${issue}`).join('\n')}
                 this.uploadSection.classList.remove('dragover');
                 this.clearError();
                 this.currentResult = null;
+                this.currentFile = null;
+                this.hideCropModal();
             }
 
             showError(message) {
@@ -725,6 +946,15 @@ ${result.issues.map(issue => `• ${issue}`).join('\n')}
 
             delay(ms) {
                 return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            async refreshPreview() {
+                const pageNum = this.pageNumberInput.value;
+                if (!this.currentFile || !pageNum || pageNum < 1) {
+                    this.showError("请输入有效的页码");
+                    return;
+                }
+                await this.showPreview(this.currentFile, pageNum);
             }
         }
 

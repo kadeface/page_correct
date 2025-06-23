@@ -102,9 +102,47 @@ class PDFPageValidator:
         
         return logger
     
+    def get_page_preview(self, pdf_path: str, page_num: int = 0, dpi: int = 150) -> Optional[str]:
+        """
+        获取PDF指定页面的预览图，并以Base64字符串形式返回。
+
+        Args:
+            pdf_path (str): PDF文件路径。
+            page_num (int, optional): 要预览的页面索引（从0开始）。默认为0。
+            dpi (int, optional): 预览图的分辨率。默认为150。
+
+        Returns:
+            Optional[str]: Base64编码的PNG图像字符串，如果失败则返回None。
+        """
+        try:
+            if not os.path.exists(pdf_path):
+                self.logger.error(f"预览失败：文件未找到于 {pdf_path}")
+                return None
+            
+            doc = fitz.open(pdf_path)
+            if not (0 <= page_num < len(doc)):
+                self.logger.error(f"预览失败：页面索引 {page_num} 超出范围 (总页数: {len(doc)})")
+                doc.close()
+                return None
+
+            page = doc.load_page(page_num)
+            mat = fitz.Matrix(dpi / 72, dpi / 72)
+            pix = page.get_pixmap(matrix=mat)
+            doc.close()
+
+            img_data = pix.tobytes("png")
+            img_base64 = base64.b64encode(img_data).decode('utf-8')
+            
+            self.logger.info(f"成功为 {os.path.basename(pdf_path)} 生成第 {page_num + 1} 页的预览。")
+            return f"data:image/png;base64,{img_base64}"
+            
+        except Exception as e:
+            self.logger.error(f"为 {os.path.basename(pdf_path)} 生成页面预览时出错: {e}", exc_info=True)
+            return None
+
     def extract_page_number(self, image: Image.Image, crop_areas: List[Tuple[int, int, int, int]], page_index: int) -> Tuple[Optional[int], Optional[Image.Image]]:
         """
-        从页面图像的指定区域中提取页码，并返回识别到的图片。
+        从页面图像的指定区域中提取页码，并始终返回对应的裁剪图片。
 
         Args:
             image: 完整的页面图像。
@@ -112,66 +150,76 @@ class PDFPageValidator:
             page_index: 当前页码索引，用于调试文件名。
 
         Returns:
-            Tuple[Optional[int], Optional[Image.Image]]: 提取到的页码和对应的裁剪图片。
+            Tuple[Optional[int], Optional[Image.Image]]: 提取到的页码（可能为None）和对应的裁剪图片。
         """
-        try:
-            for i, area in enumerate(crop_areas):
-                # 裁剪出指定区域进行识别
-                cropped_image = image.crop(area)
-                
-                # 如果开启了可视化调试，则保存裁剪的图片
-                if OCRConfig.DEBUG_SAVE_CROPPED_IMAGES:
-                    area_name = 'footer' if i == 0 else 'header' # 根据扫描顺序命名
-                    debug_filename = os.path.join(OCRConfig.DEBUG_IMAGE_PATH, f"page_{page_index + 1}_{area_name}.png")
-                    cropped_image.save(debug_filename)
-                
-                # 转换为灰度图像以提高识别率
-                gray = cropped_image.convert('L')
-                
-                # 使用Tesseract进行OCR识别
-                text = pytesseract.image_to_string(gray, lang='eng', config='--psm 6')
-                
-                # 使用正则表达式查找页码
-                patterns = [
-                    r'\b(\d+)\b',        # 纯数字, 例如: 3
-                    r'Page\s*(\d+)',     # "Page 1"
-                    r'P\.\s*(\d+)',      # "P. 1"
-                    r'-\s*(\d+)\s*-',    # "- 1 -"
-                    r'\.\s*(\d+)\s*\.',  # ". 3 ." (新添加的规则)
-                    r'(\d+)\s*/\s*\d+'   # "1 / 10"
-                ]
-                
-                for pattern in patterns:
-                    matches = re.findall(pattern, text)
-                    if matches:
-                        # 找到第一个匹配的数字就立刻返回
-                        page_num = int(matches[0])
-                        self.logger.debug(f"在区域 {i+1} 中识别到页码: {page_num}")
-                        return page_num, cropped_image
-            
-            self.logger.warning("在所有指定区域中都未能识别到页码")
+        # 当前逻辑只使用第一个区域，因此直接处理
+        if not crop_areas:
             return None, None
+            
+        try:
+            area = crop_areas[0]
+            # 裁剪出指定区域进行识别
+            cropped_image = image.crop(area)
+            
+            # 如果开启了可视化调试，则保存裁剪的图片
+            if OCRConfig.DEBUG_SAVE_CROPPED_IMAGES:
+                # 根据扫描顺序命名
+                debug_filename = os.path.join(OCRConfig.DEBUG_IMAGE_PATH, f"page_{page_index + 1}_footer.png")
+                cropped_image.save(debug_filename)
+            
+            # 转换为灰度图像以提高识别率
+            gray = cropped_image.convert('L')
+            
+            # 使用Tesseract进行OCR识别
+            text = pytesseract.image_to_string(gray, lang='eng', config='--psm 6')
+            
+            # 使用正则表达式查找页码
+            patterns = [
+                r'\b(\d+)\b',        # 纯数字, 例如: 3
+                r'Page\s*(\d+)',     # "Page 1"
+                r'P\.\s*(\d+)',      # "P. 1"
+                r'-\s*(\d+)\s*-',    # "- 1 -"
+                r'\.\s*(\d+)\s*\.',  # ". 3 ."
+                r'(\d+)\s*/\s*\d+'   # "1 / 10"
+            ]
+            
+            for pattern in patterns:
+                matches = re.findall(pattern, text)
+                if matches:
+                    # 找到第一个匹配的数字就立刻返回
+                    page_num = int(matches[0])
+                    self.logger.debug(f"在区域中识别到页码: {page_num}")
+                    return page_num, cropped_image
+            
+            # --- 关键修改 ---
+            # 即使未识别到页码，也返回裁剪后的图片用于预览
+            self.logger.warning(f"在第 {page_index + 1} 页的指定区域中未能识别到页码")
+            return None, cropped_image
             
         except Exception as e:
             self.logger.error(f"在区域页码识别过程中失败: {e}", exc_info=True)
+            # 发生异常时，不返回图片
             return None, None
     
-    def validate_page_numbers(self, pdf_path: str, dpi: int = 300) -> Dict:
+    def validate_page_numbers(self, pdf_path: str, dpi: int = 300, crop_data: Optional[Dict[str, float]] = None) -> Dict:
         """
         验证PDF文档的页码，采用逐页处理以优化内存使用。
         
         Args:
             pdf_path: PDF文件路径
             dpi: 图像分辨率，默认300
+            crop_data: 用户通过前端选择的裁剪区域坐标（百分比）
             
         Returns:
             Dict: 包含验证结果的字典。
         """
         try:
-            self.logger.info(f"开始验证PDF文档: {pdf_path} (采用内存优化模式)")
-            
             if not os.path.exists(pdf_path):
                 raise FileNotFoundError(f"PDF文件不存在: {pdf_path}")
+
+            # 根据是否存在crop_data决定日志信息
+            mode = "用户自定义区域" if crop_data else "默认配置区域"
+            self.logger.info(f"开始验证PDF文档: {pdf_path} (模式: {mode})")
 
             doc = fitz.open(pdf_path)
             total_pages = len(doc)
@@ -190,15 +238,27 @@ class PDFPageValidator:
                 
                 width, height = image.size
 
-                # --- 使用精准配置计算页脚裁剪区域 ---
-                x_start = int(width * OCRConfig.CROP_X_START_PERCENT)
-                crop_width = int(width * OCRConfig.CROP_WIDTH_PERCENT)
-                
-                footer_y_start = int(height * (1 - OCRConfig.FOOTER_CROP_HEIGHT_PERCENT - OCRConfig.FOOTER_CROP_Y_START_FROM_BOTTOM_PERCENT))
-                footer_height = int(height * OCRConfig.FOOTER_CROP_HEIGHT_PERCENT)
+                # --- 根据传入的crop_data或config计算裁剪区域 ---
+                if crop_data:
+                    x_start_percent = crop_data.get('x_start_percent', 0.40)
+                    width_percent = crop_data.get('width_percent', 0.20)
+                    y_start_percent = crop_data.get('y_start_percent', 0.90)
+                    height_percent = crop_data.get('height_percent', 0.10)
+                else:
+                    # 回退到config文件的配置
+                    x_start_percent = OCRConfig.CROP_X_START_PERCENT
+                    width_percent = OCRConfig.CROP_WIDTH_PERCENT
+                    # 注意：旧配置是从底部计算的，需要转换
+                    y_start_percent = 1 - OCRConfig.FOOTER_CROP_HEIGHT_PERCENT - OCRConfig.FOOTER_CROP_Y_START_FROM_BOTTOM_PERCENT
+                    height_percent = OCRConfig.FOOTER_CROP_HEIGHT_PERCENT
 
-                left, top = x_start, footer_y_start
-                right, bottom = x_start + crop_width, footer_y_start + footer_height
+                x_start = int(width * x_start_percent)
+                crop_width = int(width * width_percent)
+                y_start = int(height * y_start_percent)
+                crop_height = int(height * height_percent)
+
+                left, top = x_start, y_start
+                right, bottom = x_start + crop_width, y_start + crop_height
 
                 regions_to_scan = [(left, top, right, bottom)]
 

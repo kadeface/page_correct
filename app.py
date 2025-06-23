@@ -100,6 +100,57 @@ def index():
     """
     return render_template('index.html')
 
+@app.route('/preview', methods=['POST'])
+def preview_file():
+    """
+    接收PDF文件和指定页码，返回该页的预览图
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': '没有选择文件', 'code': 'NO_FILE'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': '没有选择文件', 'code': 'NO_FILE'}), 400
+        
+    # 从表单获取页码，默认为1，并转换为从0开始的索引
+    try:
+        page_number_to_preview = int(request.form.get('page_number', 1))
+        page_index = max(0, page_number_to_preview - 1) # 确保索引不为负
+    except (ValueError, TypeError):
+        page_index = 0
+        logger.warning("无法解析页码，将默认使用第一页。")
+
+    # 为预览文件创建一个唯一的临时路径
+    filename = secure_filename(file.filename)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+    temp_filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"preview_{timestamp}_{filename}")
+
+    try:
+        # 直接将文件保存到我们可控的临时路径
+        file.save(temp_filepath)
+        logger.info(f"为预览创建临时文件: {temp_filepath}")
+        
+        validator_instance = get_validator()
+        # 使用用户指定的页码索引获取预览图
+        base64_image = validator_instance.get_page_preview(temp_filepath, page_num=page_index)
+        
+        if base64_image:
+            return jsonify({'preview_image': base64_image, 'page_index': page_index})
+        else:
+            return jsonify({'error': '生成预览失败，页码可能超出范围', 'code': 'PREVIEW_FAILED'}), 500
+            
+    except Exception as e:
+        logger.error(f"生成预览时出错: {e}", exc_info=True)
+        return jsonify({'error': '服务器内部错误', 'code': 'INTERNAL_ERROR'}), 500
+    finally:
+        # 确保在使用后清理临时文件
+        if 'temp_filepath' in locals() and os.path.exists(temp_filepath):
+            try:
+                os.remove(temp_filepath)
+                logger.info(f"预览临时文件已清理: {temp_filepath}")
+            except Exception as e:
+                logger.warning(f"清理预览临时文件失败: {e}")
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     """
@@ -145,8 +196,26 @@ def upload_file():
         file.save(filepath)
         logger.info(f"文件已保存: {filepath}")
         
+        # 从表单中获取用户选择的裁剪区域数据
+        crop_data = None
+        if 'x_start_percent' in request.form:
+            try:
+                crop_data = {
+                    'x_start_percent': float(request.form['x_start_percent']),
+                    'y_start_percent': float(request.form['y_start_percent']),
+                    'width_percent': float(request.form['width_percent']),
+                    'height_percent': float(request.form['height_percent']),
+                }
+                logger.info(f"收到用户自定义裁剪区域: {crop_data}")
+            except (ValueError, TypeError):
+                logger.warning("无法解析裁剪区域数据，将使用默认配置。")
+
         validator_instance = get_validator()
-        result = validator_instance.validate_page_numbers(filepath, dpi=OCRConfig.DEFAULT_DPI)
+        result = validator_instance.validate_page_numbers(
+            filepath, 
+            dpi=OCRConfig.DEFAULT_DPI,
+            crop_data=crop_data  # 传递裁剪数据
+        )
         logger.info(f"验证完成: {file.filename}")
         
     except TesseractNotFoundError as e:
