@@ -191,7 +191,7 @@ class PDFPageValidator:
                     self.logger.debug(f"在区域中识别到页码: {page_num}")
                     return page_num, cropped_image
             
-            # --- 关键修改 ---
+            
             # 即使未识别到页码，也返回裁剪后的图片用于预览
             self.logger.warning(f"在第 {page_index + 1} 页的指定区域中未能识别到页码")
             return None, cropped_image
